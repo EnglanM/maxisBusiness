@@ -1,29 +1,87 @@
-import { BackSide, BoxGeometry, CameraHelper, DirectionalLight, FrontSide, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, Scene, Vector2, WebGLRenderer } from 'three';
+import { AmbientLight, BackSide, BoxGeometry, CameraHelper, CircleGeometry, DirectionalLight, FrontSide, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, RingGeometry, Scene, Vector2, Vector3, WebGLRenderer } from 'three';
 import {  OrbitControls } from 'three/examples/jsm/Addons.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import GUI from 'lil-gui';
+import gsap from 'gsap';
+
+
 
 // Create a new scene
 export class SetupScene {
   scene:Scene;
-  camera:PerspectiveCamera;
+  private camera1:PerspectiveCamera;
+  private camera2:PerspectiveCamera;
+  activeCamera:PerspectiveCamera;
   renderer:WebGLRenderer;
   controls:OrbitControls|null=null;
+  pointsOfInterest:Vector3[]=[];
+  private inside:boolean=false;
+  private clickedTheSamePoint: boolean=true; 
 
   constructor() {
     this.scene = new Scene();
     this.renderer = this.setupRenderer();
-    this.camera = this.setupInitialCamera();
+    this.camera1 = this.setupInitialCamera1()
+    this.camera2 = this.setupInitialCamera2()
+    this.activeCamera = this.camera1;
     this.setupEnvironment();
   }
 
+
+   //add points of interest into an array
+   addPointsOfInterest() {
+    this.pointsOfInterest.push(new Vector3(0.2711780047965805,0,-0.83912124));
+    this.pointsOfInterest.push(new Vector3(0.750271064479500,0, -0.73082347791832));
+    this.pointsOfInterest.push(new Vector3(1.108568400698858,0, -0.131983317977806));
+    this.pointsOfInterest.push(new Vector3(-0.00020868769107504904,0,-0.0748681163292408));
+  }
+
+
   // Create a new camera
-  setupInitialCamera() {
+  setupInitialCamera1() {
     const camera = new PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(4.5, 2.435859853080808, -3.6145604307786923); 
+    camera.position.set(20,10, -3);
+    camera.updateProjectionMatrix();
+    this.addControls(camera);
+    return camera;
+  }
+  setupInitialCamera2() {
+    const camera = new PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0.2711780047965805,0.2,-0.83912124);
     camera.updateProjectionMatrix();
     return camera;
   }
+
+  //create camera outside the model
+  insideToOutsideCamera() {
+    this.activeCamera.lookAt(0,0,0);
+    gsap.to(this.activeCamera.position, {
+      x: 4.5,
+      y: 2.435859853080808,
+      z: -3.6145604307786923,
+      duration: 5,
+      onUpdate: () => {
+        this.activeCamera.updateProjectionMatrix();
+      },
+    });
+
+  }
+
+  //create camera inside the model
+   async outsideToInsideCamera() {
+    this.activeCamera.lookAt(0,0,0);
+    gsap.to(this.activeCamera.position, {
+      x:this.pointsOfInterest[0].x,
+      y:this.pointsOfInterest[0].y+0.2,
+      z:this.pointsOfInterest[0].z,
+      duration: 5,
+      onUpdate: () => {
+        this.activeCamera.updateProjectionMatrix();
+      },
+    });
+
+  }
+    
 
   // Create a new renderer
   setupRenderer() {
@@ -32,81 +90,248 @@ export class SetupScene {
     document.body.appendChild(renderer.domElement);
     return renderer;
   }
-
-  setupEnvironment() {
+ 
+ async setupEnvironment() {
     //add a model 
-    this.modelLoader();
+    await this.modelLoader();
+    this.insideToOutsideCamera();
+    
     window.addEventListener('resize', () => {
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
+      this.activeCamera.aspect = window.innerWidth / window.innerHeight;
+      this.activeCamera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.render();
     });
+    this.addPointsOfInterest();
+  
+    const button= document.getElementById("inside");
+    //we will use this to check if the click is meant for the button or for the position of the camera
+    let buttonIsClicked=false;
+    //event listener to get inside and outside the model
+    if(button){
+      button.addEventListener('click', async() => {
+        buttonIsClicked=true;
+        if(!this.inside)
+        {
+          this.inside=true;
+          await this.outsideToInsideCamera();
+          this.switchTo(this.camera2);
+          // this.moveCameraToPointOfInterest(this.pointsOfInterest[0]);
+          button.innerHTML="Go Outside!";
+
+        }
+        else{
+          this.inside=false;
+          this.insideToOutsideCamera();
+          this.switchTo(this.camera1);
+          button.innerHTML="Go Inside!";
+
+        }
+      });
+    }
+     //set up raycaster
+     const raycaster = new Raycaster();
+     const pointer = new Vector2();
+
     window.addEventListener('click', (event) => {
-            // calculate mouse position in normalized device coordinates
-            const mouse = new Vector2();
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-      
-            // create a raycaster and check for intersections
-            const raycaster = new Raycaster();
-            raycaster.setFromCamera(mouse, this.camera);
-            const intersects = raycaster.intersectObjects(this.scene.children, true);
-      
-            // log the clicked object's information
-            if (intersects.length > 0) {
-              console.log('Clicked object:', intersects[0].object);
-              // console.log('Clicked object name:', intersects[0].object.name);
-              // console.log('Clicked object position:', intersects[0].object.position);
-              // console.log('Clicked object rotation:', intersects[0].object.rotation);
-              // console.log('Clicked object scale:', intersects[0].object.scale);
-            }
+      if(this.clickedTheSamePoint && buttonIsClicked===false){
+        
+        pointer.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+        pointer.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+        raycaster.setFromCamera( pointer, this.activeCamera );
+   
+       // calculate objects intersecting the picking ray
+       const intersects = raycaster.intersectObjects( this.scene.children );
+       let currentPoint= intersects[0].point;
+
+       if(!this.inside){
+        this.inside=true;
+        
+        // this.setupInsideCamera();
+        this.moveCameraToPointOfInterest(currentPoint);
+       }
+       else if(this.inside){
+         const nextPoint= this.decideWheretoMove(currentPoint);
+         this.moveCameraToPointOfInterest(nextPoint);
+         currentPoint=nextPoint;
+       }
+      }
+      else if(buttonIsClicked===true){
+        buttonIsClicked=false;
+      }
     });
 
     //add a light
     this.addDirectionalLight();
-    //add debugger  
-    const helper =new  CameraHelper( this.camera );
-    this.scene.add( helper );
-    this.setupDatGui();
-    //add orbit controls
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+
+  }
+
+
+  //add orbit controls to the camera
+  addControls(camera:PerspectiveCamera) {
+    this.controls = new OrbitControls(camera, this.renderer.domElement);
     this.controls.maxPolarAngle = 1.354663921094003 ;
     this.controls.minPolarAngle = 0;
     this.controls.zoomToCursor=true;
     this.controls.update();
   }
-
-  addDirectionalLight() {
-    const light = new DirectionalLight(0xffffff, 15);
-    light.position.set(0, 1, 1).normalize();
-    this.scene.add(light);
-    const light2 = new DirectionalLight(0xffffff, 3);
-    light.position.set(0, -1, -1).normalize();
-    this.scene.add(light2);
+  private switchTo(camera:PerspectiveCamera){
+    this.activeCamera=camera;
   }
 
-  modelLoader() {
+  //move the camera to the point of interest
+  moveCameraToPointOfInterest(position:Vector3) {
+      gsap.to(this.activeCamera.position, {
+        x: position.x,
+        y: position.y+0.2,
+        z: position.z,
+        duration: 5,
+        onUpdate: () => {
+          this.activeCamera.updateProjectionMatrix();
+        },
+      })
+    const mouse = new Vector2();
+    let isMouseDown = false;
+    let click= new Vector2;
+
+    //event listeners to rotate the camera
+    document.addEventListener('mousemove',(event)=>{
+      if (isMouseDown) {
+          const deltaX = (event.clientX - mouse.x) * 0.0008;  
+          this.activeCamera.rotation.y += deltaX;
+      }
+      mouse.x = event.clientX;
+      mouse.y = event.clientY;
+      
+  });
+
+    document.addEventListener('mousedown', (event) => {
+      if(isMouseDown==false){
+        click.x = event.clientX;
+        click.y = event.clientY;
+        isMouseDown = true;
+      }
+    });
+
+    document.addEventListener('mouseup', (event) => {
+     isMouseDown = false;
+     if(click.x!=event.clientX || click.y!=event.clientY){
+      this.clickedTheSamePoint=false;
+     }
+     else{
+      this.clickedTheSamePoint=true;
+     }
+    });
+    //event listeners to zoom in and out of the activeCamera
+    window.addEventListener('wheel', (event) => {
+      const zoomFactor = 1 + event.deltaY * 0.0005;
+      this.activeCamera.fov /= zoomFactor;
+      this.activeCamera.fov = Math.max(30, Math.min(100, this.activeCamera.fov));
+      this.activeCamera.updateProjectionMatrix();
+    });
+    
+    // return camera;
+  }
+
+  // private scrollAndZoom() {
+  //   console.log('scroll and zoom');
+  //   const mouse = new Vector2();
+  //   let isMouseDown = false;
+  //   let click= new Vector2
+
+  //   //event listeners to rotate the camera
+  //   document.addEventListener('mousemove',(event)=>{
+  //     if (isMouseDown) {
+  //         const deltaX = (event.clientX - mouse.x) * 0.0008;  
+  //         this.activeCamera.rotation.x += deltaX;
+  //     }
+  //     mouse.x = event.clientX;
+  //     mouse.y = event.clientY;
+      
+  // });
+  //   document.addEventListener('mousedown', (event) => {
+  //     if(isMouseDown==false){
+  //       click.x = event.clientX;
+  //       click.y = event.clientY;
+  //       isMouseDown = true;
+  //     }
+  //   });
+
+  //   document.addEventListener('mouseup', (event) => {
+  //    isMouseDown = false;
+  //    if(click.x!=event.clientX || click.y!=event.clientY){
+  //     this.clickedTheSamePoint=false;
+  //    }
+  //    else{
+  //     this.clickedTheSamePoint=true;
+  //    }
+  //   });
+  //   //event listeners to zoom in and out of the camera
+  //   window.addEventListener('wheel', (event) => {
+  //     const zoomFactor = 1 + event.deltaY * 0.0005;
+  //     this.activeCamera.fov /= zoomFactor;
+  //     this.activeCamera.fov = Math.max(30, Math.min(100, this.activeCamera.fov));
+  //     this.activeCamera.updateProjectionMatrix();
+  //   });
+  // }
+
+
+
+  decideWheretoMove(position:Vector3){
+    let min =99999;
+    let index=0;
+    this.pointsOfInterest.forEach((point) =>{
+      if(point!=position){
+        const distance=position.distanceTo(point);
+        if(distance<min){
+          min= distance;
+          index=this.pointsOfInterest.indexOf(point);
+        }
+      }
+
+    })
+    return this.pointsOfInterest[index];
+  }
+
+  addDirectionalLight() {
+    // Add ambient light
+    const ambientLight = new AmbientLight(0xffffff, 3);
+    this.scene.add(ambientLight);
+
+    // Add directional light
+    const directionalLight = new DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(0, 1, 0);
+    this.scene.add(directionalLight);
+  }
+
+  async modelLoader() { 
+    
     const loader= new GLTFLoader();
     loader.load('../public/media/1103.glb', (glb)=>{
+      let nr=-1;
       glb.scene.traverse((child)=> {
-        
         if (child instanceof Mesh) {
+          nr+=1;
           child.material.side = FrontSide;
-          //checkthis out, to eleminate the meshes above the ground
-          if(child.name==='d34ed4d299ea4d2eb441633630e4a4d0_100'){
-            child.material.color.set(0x00ff00);
-            
+          // console.log(child.material.name);
+
+          // if(nr >= 20 && nr <= 40 ) { (0x00ff00); 
+          // }
+          if(nr >=100 && nr != 108 && nr != 109 && nr != 110 && nr != 111 && nr != 112 && nr != 113 && nr != 114 && nr != 115 && nr != 122 && nr != 123 && nr != 124 && nr != 125 && nr != 126 && nr != 127 && nr != 128 && nr != 129 && nr != 130 && nr != 131 && nr != 132 && nr != 133  && nr != 134 && nr != 135  
+            && nr != 136 && nr != 137 && nr != 157 && nr != 158 && nr != 159 && nr != 164 && nr != 173 && nr != 174 && nr != 175 && nr != 176) {
+            if(child.material.name==`d34ed4d299ea4d2eb441633630e4a4d0_${nr}.jpg`){
+              // console.log('found');
+              child.visible=false;
+              child.material.color.set(0x00ff00);
+              
+            }
           }
           
         }
       });
-     
-
-      console.log(glb);
-      
       const root= glb.scene;
-      root.scale.set(0.1,0.1,0.1);
+      root.scale.set(0.1,0.1,0.1);   
       root.position.set(0,0,0);
       root.rotation.x = Math.PI;
       this.scene.add(root);
@@ -116,6 +341,7 @@ export class SetupScene {
       console.error(error);
     });
   }
+
 
 
   setupDatGui() {
@@ -140,29 +366,15 @@ export class SetupScene {
     // }
     }
 
-    
   // Render the scene
   animate() {
     requestAnimationFrame(this.animate.bind(this));
-  //  const raycaster = new Raycaster();
-  //   // Update the raycaster to start from the camera's position and go in the direction the camera is looking
-  //  raycaster.setFromCamera(new Vector2(0, 0), this.camera);
-
-  // Get all objects the ray intersects
-  // const intersects = raycaster.intersectObjects(this.scene.children, true);
-
-  // // Loop through all intersected objects
-  // for (let i = 0; i < intersects.length; i++) {
-  //   // Hide the object
-  //   // intersects[i].object.visible = false;
-  // }
-  // this.controls?.update();
-
+    this.controls?.update();
     this.render();
   }
 
   private render() {
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.render(this.scene, this.activeCamera);
   }
 
   //end of class
